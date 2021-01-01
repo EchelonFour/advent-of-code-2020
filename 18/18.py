@@ -1,86 +1,47 @@
 from os.path import abspath, dirname, join
 from typing import List, Tuple
 
-from sly import Lexer, Parser
+from lark import Lark, Transformer, v_args
+advent_of_code_left_to_right_grammar = """
+    ?start: expression
+    ?expression: atom
+        | expression "+" atom   -> add
+        | expression "*" atom   -> multiply
+    ?atom: NUMBER           -> number
+         | "(" expression ")"
+    %import common.NUMBER
+    %import common.WS_INLINE
+    %ignore WS_INLINE
+"""
 
-class AdventOfCodeLexer(Lexer):
-    tokens = { NUMBER, PLUS, TIMES, LPAREN, RPAREN }
-    ignore = ' \t'
+advent_of_code_plus_first_grammar = """
+    ?start: expression
+    ?expression: sum
+        | sum "*" expression   -> multiply
+    ?sum: atom
+        | sum "+" atom   -> add
+    ?atom: NUMBER           -> number
+         | "(" expression ")"
+    %import common.NUMBER
+    %import common.WS_INLINE
+    %ignore WS_INLINE
+"""
 
-    # Tokens
-    NUMBER = r'\d+'
+@v_args(inline=True)    # Affects the signatures of the methods
+class CalculateTree(Transformer):
+    def number(self, input):
+        return int(input)
+    def multiply(self, input0, input1):
+        return input0 * input1
+    def add(self, input0, input1):
+        return input0 + input1
 
-    # Special symbols
-    PLUS = r'\+'
-    TIMES = r'\*'
-    LPAREN = r'\('
-    RPAREN = r'\)'
-
-    def error(self, t):
-        print("Illegal character '%s'" % t.value[0])
-        self.index += 1
-
-class AdventOfCodeParser(Parser):
-    tokens = AdventOfCodeLexer.tokens
-    precedence = (
-        ('left', 'PLUS', 'TIMES'),
-    )
-    def __init__(self):
-        self.result: int = None
-
-    @_('expr')
-    def statement(self, p):
-        self.result = p.expr
-
-    @_('expr PLUS expr')
-    def expr(self, p):
-        return p.expr0 + p.expr1
-
-    @_('expr TIMES expr')
-    def expr(self, p):
-        return p.expr0 * p.expr1
-
-    @_('LPAREN expr RPAREN')
-    def expr(self, p):
-        return p.expr
-
-    @_('NUMBER')
-    def expr(self, p):
-        return int(p.NUMBER)
-
-class AdventOfCodePlusFirstParser(AdventOfCodeParser):
-    precedence = (
-        ('left', 'TIMES'),
-        ('left', 'PLUS'), # tuple is bottom up, so plus is first here
-    )
-
-    # sly can't actually extend parsers right, so we copy and paste the functions from above (https://github.com/dabeaz/sly/issues/12)
-    @_('expr')
-    def statement(self, p):
-        self.result = p.expr
-
-    @_('expr PLUS expr')
-    def expr(self, p):
-        return p.expr0 + p.expr1
-
-    @_('expr TIMES expr')
-    def expr(self, p):
-        return p.expr0 * p.expr1
-
-    @_('LPAREN expr RPAREN')
-    def expr(self, p):
-        return p.expr
-
-    @_('NUMBER')
-    def expr(self, p):
-        return int(p.NUMBER)
+aoc_left_to_right_parser = Lark(advent_of_code_left_to_right_grammar, parser='lalr', transformer=CalculateTree())
+aoc_plus_first_parser = Lark(advent_of_code_plus_first_grammar, parser='lalr', transformer=CalculateTree())
 
 def evaluate(line: str, plusHasPrecedence = False) -> int:
-    lexer = AdventOfCodeLexer()
-    parser = AdventOfCodePlusFirstParser() if plusHasPrecedence else AdventOfCodeParser()
-    lexed_math = lexer.tokenize(line)
-    parser.parse(lexed_math)
-    return parser.result
+    parser = aoc_plus_first_parser if plusHasPrecedence else aoc_left_to_right_parser
+    return parser.parse(line)
 
 with open(abspath(join(dirname(__file__), 'input'))) as f:
     lines = [l.strip() for l in f.readlines()]
